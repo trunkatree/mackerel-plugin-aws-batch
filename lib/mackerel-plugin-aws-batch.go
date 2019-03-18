@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -24,6 +25,13 @@ func (p AwsBatchPlugin) GraphDefinition() map[string](mp.Graphs) {
 				mp.Metrics{Name: "RUNNABLE", Label: "RUNNABLE"},
 				mp.Metrics{Name: "STARTING", Label: "STARTING"},
 				mp.Metrics{Name: "RUNNING", Label: "RUNNING"},
+			},
+		},
+		"aws.batch.runtime.#": mp.Graphs{
+			Label: "AWS Batch Jobs Runtime",
+			Unit:  "float",
+			Metrics: [](mp.Metrics){
+				mp.Metrics{Name: "*", Label: "%2"},
 			},
 		},
 	}
@@ -47,9 +55,20 @@ func (p AwsBatchPlugin) FetchMetrics() (map[string]interface{}, error) {
 
 	for _, name := range p.JobQueues {
 		for _, s := range statuses {
-			n, err := p.getLastPoint(name, s)
-			if err == nil {
-				stat["aws.batch.jobs."+name+"."+s] = n
+			// get ListJobs
+			lj, err := p.getListJobs(name, s)
+			if err != nil {
+				return nil, err
+			}
+			// get LastPoint from ListJobs
+			n := p.getLastPoint(lj)
+			stat["aws.batch.jobs."+name+"."+s] = n
+			// get Runtime from ListJobs
+			if s == "RUNNING" {
+				for _, js := range lj.JobSummaryList {
+					rt := p.getRuntime(js)
+					stat["aws.batch.runtime."+name+"."+aws.StringValue(js.JobName)] = rt
+				}
 			}
 		}
 	}
@@ -74,17 +93,27 @@ func (p *AwsBatchPlugin) prepare() error {
 	return nil
 }
 
-func (p AwsBatchPlugin) getLastPoint(name string, status string) (float64, error) {
+func (p AwsBatchPlugin) getListJobs(name string, status string) (*batch.ListJobsOutput, error) {
 	input := &batch.ListJobsInput{
 		JobQueue:  aws.String(name),
 		JobStatus: aws.String(status),
 	}
-
-	result, err := p.Batch.ListJobs(input)
+	resp, err := p.Batch.ListJobs(input)
 	if err != nil {
-		return 0.0, err
+		return nil, err
 	}
-	return float64(len(result.JobSummaryList)), nil
+	resp = resp.SetJobSummaryList(resp.JobSummaryList)
+	return resp, nil
+}
+
+func (p AwsBatchPlugin) getLastPoint(lj *batch.ListJobsOutput) float64 {
+	return float64(len(lj.JobSummaryList))
+}
+
+func (p AwsBatchPlugin) getRuntime(js *batch.JobSummary) float64 {
+	sa := aws.MillisecondsTimeValue(js.StartedAt)
+	d := time.Since(sa)
+	return d.Minutes()
 }
 
 func (j *jobQueueNames) String() string {
