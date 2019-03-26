@@ -31,7 +31,7 @@ func (p AwsBatchPlugin) GraphDefinition() map[string](mp.Graphs) {
 			Label: "AWS Batch Jobs Runtime",
 			Unit:  "float",
 			Metrics: [](mp.Metrics){
-				mp.Metrics{Name: "*", Label: "%2"},
+				mp.Metrics{Name: "*", Label: "%1"},
 			},
 		},
 	}
