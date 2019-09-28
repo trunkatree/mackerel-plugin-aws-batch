@@ -25,6 +25,8 @@ func (p AwsBatchPlugin) GraphDefinition() map[string](mp.Graphs) {
 				mp.Metrics{Name: "RUNNABLE", Label: "RUNNABLE"},
 				mp.Metrics{Name: "STARTING", Label: "STARTING"},
 				mp.Metrics{Name: "RUNNING", Label: "RUNNING"},
+				mp.Metrics{Name: "FAILED", Label: "FAILED"},
+				mp.Metrics{Name: "SUCCEEDED", Label: "SUCCEEDED"},
 			},
 		},
 		"aws.batch.runtime.#": mp.Graphs{
@@ -40,6 +42,7 @@ func (p AwsBatchPlugin) GraphDefinition() map[string](mp.Graphs) {
 
 type jobQueueNames []string
 
+// AwsBatchPlugin is a mackerel plugin
 type AwsBatchPlugin struct {
 	AccessKeyID     string
 	SecretAccessKey string
@@ -51,7 +54,7 @@ type AwsBatchPlugin struct {
 // FetchMetrics fetch the metrics
 func (p AwsBatchPlugin) FetchMetrics() (map[string]interface{}, error) {
 	stat := make(map[string]interface{})
-	statuses := []string{"SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING"}
+	statuses := []string{"SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING", "FAILED", "SUCCEEDED"}
 
 	for _, name := range p.JobQueues {
 		for _, s := range statuses {
@@ -60,9 +63,11 @@ func (p AwsBatchPlugin) FetchMetrics() (map[string]interface{}, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			// get LastPoint from ListJobs
 			n := p.getLastPoint(lj)
 			stat["aws.batch.jobs."+name+"."+s] = n
+
 			// get Runtime from ListJobs
 			if s == "RUNNING" {
 				for _, js := range lj.JobSummaryList {
@@ -76,6 +81,9 @@ func (p AwsBatchPlugin) FetchMetrics() (map[string]interface{}, error) {
 }
 
 func (p *AwsBatchPlugin) prepare() error {
+	if len(p.JobQueues) == 0 {
+		return fmt.Errorf("Missing job queue names")
+	}
 	sess, err := session.NewSession()
 	if err != nil {
 		return err
@@ -117,7 +125,7 @@ func (p AwsBatchPlugin) getRuntime(js *batch.JobSummary) float64 {
 }
 
 func (j *jobQueueNames) String() string {
-	return fmt.Sprint("%v", *j)
+	return fmt.Sprintf("%v", *j)
 }
 
 func (j *jobQueueNames) Set(v string) error {
@@ -125,6 +133,7 @@ func (j *jobQueueNames) Set(v string) error {
 	return nil
 }
 
+// Do the plugin
 func Do() {
 	var plugin AwsBatchPlugin
 	var jqn jobQueueNames
